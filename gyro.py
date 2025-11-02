@@ -9,8 +9,8 @@ class Gyro:
     self.imu.reset()
     self.imu.enable_default()
 
-    displayer.show("Calibrating...")
-    time.sleep_ms(500)
+    displayer.show("Calibrate in 2s")
+    time.sleep_ms(2000)
     start_ms = time.ticks_ms()
     self.adjustment_per_second = 0.0
     reading_count = 0

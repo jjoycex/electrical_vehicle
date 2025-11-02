@@ -2,6 +2,8 @@ from pololu_3pi_2040_robot import robot
 from gyro import Gyro
 from timer import Timer
 from displayer import Displayer
+from sound_sensor import SoundSensor
+import math
 
 #initalizing variables
 button_a = robot.ButtonA()
@@ -9,32 +11,45 @@ button_b = robot.ButtonB()
 button_c = robot.ButtonC()
 displayer: Displayer = Displayer() #display pannel 
 gyro: Gyro = Gyro(displayer) 
-timer: Timer = Timer(gyro) #keep checking gyro 
-MOTOR_SPEED_LEFT=2000
-MOTOR_SPEED_RIGHT=2026
+timer: Timer = Timer(gyro) #keep checking gyro
+soundSensor = SoundSensor()
+MOTOR_SPEED_LEFT=3000   # 1000
+MOTOR_SPEED_RIGHT=3045   # max speed: 6000
+TURN_SPEED=500
+TURN_ANGLE_ADJUST=3.0
+ANGLE_OFF_ALLOWED=0.25
+SPEED_ADJUST=100  # speed adjustment for angle off
 encoders = robot.Encoders() # 0.0287cm/count 
 motors = robot.Motors()
-distance_to_gate = 313.21  #cm CHANGE
-angle_to_gate = 16.7 # degree CHANGE
+distance_to_target = 700 # cm CHANGE
+distance_to_gate = math.sqrt(distance_to_target*distance_to_target/4 + 90 * 90) - 20
+angle_to_gate = math.degrees(math.atan(180/distance_to_target))  # =(100-10)/(target/2)
 
-def left(target_angle)
+def left(target_angle):
   current_angle = gyro.degree()
-  motors.set_speeds(0, MOTOR_SPEED_RIGHT)
-  while current_angle < target_angle
+  motors.set_speeds(-TURN_SPEED, TURN_SPEED)
+  while current_angle < target_angle - TURN_ANGLE_ADJUST:
     current_angle = gyro.degree()
 
   motors.off()
-  timer.sleep_ms(500)
+  timer.sleep_ms(100)
 
-def right(target_angle)
+def right(target_angle):
   current_angle = gyro.degree()
-  motors.set_speeds(MOTOR_SPEED_LEFT, 0)
-  while current_angle > target_angle
+  motors.set_speeds(TURN_SPEED, -TURN_SPEED)
+  while current_angle > target_angle + TURN_ANGLE_ADJUST:
     current_angle = gyro.degree()
 
   motors.off()
-  timer.sleep_ms(500)
-  
+  timer.sleep_ms(100)
+
+def straight():
+  angle = gyro.degree()
+  if angle > 1:
+    right(0)
+  if angle < -1:
+    left(0)
+
 def drive(distance, target_angle): #move certain distance at certain angle 
   target_count = distance / 0.0287 
   right_adjusted = 0
@@ -43,10 +58,10 @@ def drive(distance, target_angle): #move certain distance at certain angle
   while count < target_count:
     motors.set_speeds(MOTOR_SPEED_LEFT, MOTOR_SPEED_RIGHT + right_adjusted) # if the gyro sensor is not right , correct it.
     angle = gyro.degree()
-    if angle < target_angle - 0.25:
-      right_adjusted = 50
-    elif angle > target_angle + 0.25:
-      right_adjusted = -50
+    if angle < target_angle - ANGLE_OFF_ALLOWED:
+      right_adjusted = SPEED_ADJUST
+    elif angle > target_angle + ANGLE_OFF_ALLOWED:
+      right_adjusted = -SPEED_ADJUST
     else:
       right_adjusted = 0
 
@@ -54,25 +69,62 @@ def drive(distance, target_angle): #move certain distance at certain angle
     count = (counts[0] + counts[1]) / 2
 
   motors.off()
-  timer.sleep_ms(500)
+  timer.sleep_ms(200)
 
-displayer.show("Press A to start...")
-
-while True:
-    if button_a.check() == True:
-      timer.sleep_ms(500)
-      displayer.show("start driving ...")
-      ############
-      left(angle_to_gate)
-      drive(distance_to_gate, angle_to_gate)
-      right(0)
-      drive(100, 0)
-      right(-angle_to_gate)
-      drive(distance_to_gate, -angle_to_gate)
-
+# aim to gate and return the distance to the gate
+def pass_gate():
+  right(-90)
+  motors.set_speeds(-TURN_SPEED, TURN_SPEED)
+  distance = soundSensor.distance_cm()
+  displayer.show(str(distance))
+  while distance > 50:  # look for the inner bottle      
     gyro.degree()
+    distance = soundSensor.distance_cm()
+    displayer.show(str(distance))
+
+  motors.off()
+  timer.sleep_ms(100)
+
+  degree = gyro.degree()
+  drive(distance - 15, degree)
+  left(90)
+  if degree > 30:
+    drive(15, 90)
+  
+  motors.set_speeds(TURN_SPEED, -TURN_SPEED)
+  distance = soundSensor.distance_cm()
+  while distance > 50:  # look for the outer bottle      
+    gyro.degree()
+    distance = soundSensor.distance_cm()
+  motors.off()
+  timer.sleep_ms(100)
+  degree = gyro.degree()
+  drive(distance - 17, degree)
+  motors.off()
+  timer.sleep_ms(100)
+  straight()
+  drive(30, 0)   # pass the gate
+  
+displayer.show("press A: " + str(angle_to_gate))
+while True:
+    angle = gyro.degree()
+    if button_a.check() == True:
+      displayer.show("Drive in 2s")
+      timer.sleep_ms(2000)
+      ############
+      drive(distance_to_gate, angle_to_gate)
+      timer.sleep_ms(0) # add sleep if needed
+      pass_gate()
+      timer.sleep_ms(0) # add sleep if needed
+      right(-angle_to_gate)
+      timer.sleep_ms(0) # add sleep if needed
+      degree = gyro.degree()
+      displayer.show(str(degree))
+#     drive(distance_to_gate, -angle_to_gate)
+
 
 # This for 7m distance with 20cm wide gate.
+# 0. turn robot at 16.7 degree.
 # 1. travel at 16.7 degree for 313.21 cm. 
 # 2. turn degree -16.7, so that we are at degree 0.
 # 3. travel at 0 degree for 100cm.
